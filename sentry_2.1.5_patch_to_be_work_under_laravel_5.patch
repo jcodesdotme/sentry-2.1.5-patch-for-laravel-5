@@ -1,0 +1,533 @@
+diff --git a/composer.json b/composer.json
+index 17c965d..c84f58d 100644
+--- a/composer.json
++++ b/composer.json
+@@ -35,10 +35,10 @@
+ 	"require-dev": {
+ 		"mockery/mockery": "0.9.*",
+ 
+-		"illuminate/cookie": ">=4.0.9,<4.2",
+-		"illuminate/database": ">=4.0.9,<4.2",
+-		"illuminate/http": ">=4.0.9,<4.2",
+-		"illuminate/session": ">=4.0.9,<4.2",
++		"illuminate/cookie": "~4.0|~5.0",
++		"illuminate/database": "~4.0|~5.0",
++		"illuminate/http": "~4.0|~5.0",
++		"illuminate/session": "~4.0|~5.0",
+ 		"ircmaxell/password-compat": "1.0.*"
+ 	},
+ 	"suggest": {
+diff --git a/src/Cartalyst/Sentry/SentryServiceProvider.php b/src/Cartalyst/Sentry/SentryServiceProvider.php
+index ae8742b..2a40ea5 100644
+--- a/src/Cartalyst/Sentry/SentryServiceProvider.php
++++ b/src/Cartalyst/Sentry/SentryServiceProvider.php
+@@ -33,22 +33,13 @@ use Illuminate\Support\ServiceProvider;
+ class SentryServiceProvider extends ServiceProvider {
+ 
+ 	/**
+-	 * Boot the service provider.
+-	 *
+-	 * @return void
+-	 */
+-	public function boot()
+-	{
+-		$this->package('cartalyst/sentry', 'cartalyst/sentry');
+-	}
+-
+-	/**
+ 	 * Register the service provider.
+ 	 *
+ 	 * @return void
+ 	 */
+ 	public function register()
+ 	{
++		$this->prepareResources();
+ 		$this->registerHasher();
+ 		$this->registerUserProvider();
+ 		$this->registerGroupProvider();
+@@ -59,6 +50,24 @@ class SentryServiceProvider extends ServiceProvider {
+ 	}
+ 
+ 	/**
++	 * Prepare the package resources.
++	 *
++	 * @return void
++	 */
++	protected function prepareResources()
++	{
++		$config     = realpath(__DIR__.'/../../config/config.php');
++		$migrations = realpath(__DIR__.'/../../migrations');
++
++		$this->mergeConfigFrom($config, 'cartalyst.sentry');
++
++		$this->publishes([
++			$config     => config_path('cartalyst.sentry.php'),
++			$migrations => $this->app->databasePath().'/migrations',
++		]);
++	}
++
++	/**
+ 	 * Register the hasher used by Sentry.
+ 	 *
+ 	 * @return void
+@@ -67,7 +76,7 @@ class SentryServiceProvider extends ServiceProvider {
+ 	{
+ 		$this->app['sentry.hasher'] = $this->app->share(function($app)
+ 		{
+-			$hasher = $app['config']['cartalyst/sentry::hasher'];
++			$hasher = $app['config']->get('cartalyst.sentry.hasher');
+ 
+ 			switch ($hasher)
+ 			{
+@@ -101,7 +110,9 @@ class SentryServiceProvider extends ServiceProvider {
+ 	{
+ 		$this->app['sentry.user'] = $this->app->share(function($app)
+ 		{
+-			$model = $app['config']['cartalyst/sentry::users.model'];
++			$config = $app['config']->get('cartalyst.sentry');
++
++			$model = array_get($config, 'users.model');
+ 
+ 			// We will never be accessing a user in Sentry without accessing
+ 			// the user provider first. So, we can lazily set up our user
+@@ -110,7 +121,7 @@ class SentryServiceProvider extends ServiceProvider {
+ 			// overriding at runtime.
+ 			if (method_exists($model, 'setLoginAttributeName'))
+ 			{
+-				$loginAttribute = $app['config']['cartalyst/sentry::users.login_attribute'];
++				$loginAttribute = array_get($config, 'users.login_attribute');
+ 
+ 				forward_static_call_array(
+ 					array($model, 'setLoginAttributeName'),
+@@ -121,7 +132,7 @@ class SentryServiceProvider extends ServiceProvider {
+ 			// Define the Group model to use for relationships.
+ 			if (method_exists($model, 'setGroupModel'))
+ 			{
+-				$groupModel = $app['config']['cartalyst/sentry::groups.model'];
++				$groupModel = array_get($config, 'groups.model');
+ 
+ 				forward_static_call_array(
+ 					array($model, 'setGroupModel'),
+@@ -132,7 +143,7 @@ class SentryServiceProvider extends ServiceProvider {
+ 			// Define the user group pivot table name to use for relationships.
+ 			if (method_exists($model, 'setUserGroupsPivot'))
+ 			{
+-				$pivotTable = $app['config']['cartalyst/sentry::user_groups_pivot_table'];
++				$pivotTable = array_get($config, 'user_groups_pivot_table');
+ 
+ 				forward_static_call_array(
+ 					array($model, 'setUserGroupsPivot'),
+@@ -153,12 +164,14 @@ class SentryServiceProvider extends ServiceProvider {
+ 	{
+ 		$this->app['sentry.group'] = $this->app->share(function($app)
+ 		{
+-			$model = $app['config']['cartalyst/sentry::groups.model'];
++			$config = $app['config']->get('cartalyst.sentry');
++
++			$model = array_get($config, 'groups.model');
+ 
+ 			// Define the User model to use for relationships.
+ 			if (method_exists($model, 'setUserModel'))
+ 			{
+-				$userModel = $app['config']['cartalyst/sentry::users.model'];
++				$userModel = array_get($config, 'users.model');
+ 
+ 				forward_static_call_array(
+ 					array($model, 'setUserModel'),
+@@ -169,7 +182,7 @@ class SentryServiceProvider extends ServiceProvider {
+ 			// Define the user group pivot table name to use for relationships.
+ 			if (method_exists($model, 'setUserGroupsPivot'))
+ 			{
+-				$pivotTable = $app['config']['cartalyst/sentry::user_groups_pivot_table'];
++				$pivotTable = array_get($config, 'user_groups_pivot_table');
+ 
+ 				forward_static_call_array(
+ 					array($model, 'setUserGroupsPivot'),
+@@ -190,18 +203,20 @@ class SentryServiceProvider extends ServiceProvider {
+ 	{
+ 		$this->app['sentry.throttle'] = $this->app->share(function($app)
+ 		{
+-			$model = $app['config']['cartalyst/sentry::throttling.model'];
++			$config = $app['config']->get('cartalyst.sentry');
++
++			$model = array_get($config, 'throttling.model');
+ 
+ 			$throttleProvider = new ThrottleProvider($app['sentry.user'], $model);
+ 
+-			if ($app['config']['cartalyst/sentry::throttling.enabled'] === false)
++			if (array_get($config, 'throttling.enabled') === false)
+ 			{
+ 				$throttleProvider->disable();
+ 			}
+ 
+ 			if (method_exists($model, 'setAttemptLimit'))
+ 			{
+-				$attemptLimit = $app['config']['cartalyst/sentry::throttling.attempt_limit'];
++				$attemptLimit = array_get($config, 'throttling.attempt_limit');
+ 
+ 				forward_static_call_array(
+ 					array($model, 'setAttemptLimit'),
+@@ -210,18 +225,18 @@ class SentryServiceProvider extends ServiceProvider {
+ 			}
+ 			if (method_exists($model, 'setSuspensionTime'))
+ 			{
+-				$suspensionTime = $app['config']['cartalyst/sentry::throttling.suspension_time'];
++				$suspensionTime = array_get($config, 'throttling.suspension_time');
+ 
+ 				forward_static_call_array(
+ 					array($model, 'setSuspensionTime'),
+ 					array($suspensionTime)
+ 				);
+ 			}
+-			
++
+ 			// Define the User model to use for relationships.
+ 			if (method_exists($model, 'setUserModel'))
+ 			{
+-				$userModel = $app['config']['cartalyst/sentry::users.model'];
++				$userModel = array_get($config, 'users.model');
+ 
+ 				forward_static_call_array(
+ 					array($model, 'setUserModel'),
+@@ -242,7 +257,7 @@ class SentryServiceProvider extends ServiceProvider {
+ 	{
+ 		$this->app['sentry.session'] = $this->app->share(function($app)
+ 		{
+-			$key = $app['config']['cartalyst/sentry::cookie.key'];
++			$key = $app['config']->get('cartalyst.sentry.cookie.key');
+ 
+ 			return new IlluminateSession($app['session.store'], $key);
+ 		});
+@@ -257,7 +272,7 @@ class SentryServiceProvider extends ServiceProvider {
+ 	{
+ 		$this->app['sentry.cookie'] = $this->app->share(function($app)
+ 		{
+-			$key = $app['config']['cartalyst/sentry::cookie.key'];
++			$key = $app['config']->get('cartalyst.sentry.cookie.key');
+ 
+ 			/**
+ 			 * We'll default to using the 'request' strategy, but switch to
+diff --git a/src/Cartalyst/Sentry/Users/Eloquent/User.php b/src/Cartalyst/Sentry/Users/Eloquent/User.php
+index dce1cdd..e188777 100644
+--- a/src/Cartalyst/Sentry/Users/Eloquent/User.php
++++ b/src/Cartalyst/Sentry/Users/Eloquent/User.php
+@@ -20,6 +20,7 @@
+ 
+ use Illuminate\Database\Eloquent\Model;
+ use Cartalyst\Sentry\Groups\GroupInterface;
++use Cartalyst\Sentry\Groups\Eloquent\Provider as GroupProvider;
+ use Cartalyst\Sentry\Hashing\HasherInterface;
+ use Cartalyst\Sentry\Users\LoginRequiredException;
+ use Cartalyst\Sentry\Users\PasswordRequiredException;
+@@ -117,6 +118,13 @@ class User extends Model implements UserInterface {
+ 	protected static $groupModel = 'Cartalyst\Sentry\Groups\Eloquent\Group';
+ 
+ 	/**
++	 * The Eloquent group provider model.
++	 *
++	 * @var string
++	 */
++	protected static $groupProviderModel = null;
++
++	/**
+ 	 * The user groups pivot table name.
+ 	 *
+ 	 * @var string
+@@ -208,7 +216,7 @@ class User extends Model implements UserInterface {
+ 	 * Mutator for giving permissions.
+ 	 *
+ 	 * @param  mixed  $permissions
+-	 * @return array  $_permissions
++	 * @return array
+ 	 */
+ 	public function getPermissionsAttribute($permissions)
+ 	{
+@@ -360,7 +368,7 @@ class User extends Model implements UserInterface {
+ 			return false;
+ 		}
+ 
+-		return $persistCode === $this->persist_code;
++		return $persistCode == $this->persist_code;
+ 	}
+ 
+ 	/**
+@@ -492,26 +500,30 @@ class User extends Model implements UserInterface {
+ 		return $this->userGroups;
+ 	}
+ 
+-    /**
+-     * Clear the cached permissions attribute.
+-     */
+-    public function invalidateMergedPermissionsCache()
+-    {
++	/**
++	 * Clear the cached permissions attribute.
++	 *
++	 * @return null
++	 */
++	public function invalidateMergedPermissionsCache()
++	{
+ 		$this->mergedPermissions = null;
+-    }
++	}
+ 
+-    /**
+-     * Clear the cached user groups attribute.
+-     */
+-    public function invalidateUserGroupsCache()
+-    {
++	/**
++	 * Clear the cached user groups attribute.
++	 *
++	 * @return null
++	 */
++	public function invalidateUserGroupsCache()
++	{
+ 		$this->userGroups = null;
+-    }
+-    
++	}
++
+ 	/**
+ 	 * Adds the user to the given group.
+ 	 *
+-	 * @param \Cartalyst\Sentry\Groups\GroupInterface  $group
++	 * @param  \Cartalyst\Sentry\Groups\GroupInterface  $group
+ 	 * @return bool
+ 	 */
+ 	public function addGroup(GroupInterface $group)
+@@ -519,7 +531,9 @@ class User extends Model implements UserInterface {
+ 		if ( ! $this->inGroup($group))
+ 		{
+ 			$this->groups()->attach($group);
++
+ 			$this->invalidateUserGroupsCache();
++
+ 			$this->invalidateMergedPermissionsCache();
+ 		}
+ 
+@@ -537,7 +551,9 @@ class User extends Model implements UserInterface {
+ 		if ($this->inGroup($group))
+ 		{
+ 			$this->groups()->detach($group);
++
+ 			$this->invalidateUserGroupsCache();
++
+ 			$this->invalidateMergedPermissionsCache();
+ 		}
+ 
+@@ -545,9 +561,75 @@ class User extends Model implements UserInterface {
+ 	}
+ 
+ 	/**
++	 * Updates the user to the given group(s).
++	 *
++	 * @param  \Illuminate\Database\Eloquent\Collection  $groups
++	 * @param  bool  $remove
++	 * @return bool
++	 */
++	public function updateGroups($groups, $remove = true)
++	{
++		$newGroupIds = array();
++
++		$removeGroupIds = array();
++
++		$existingGroupIds = array();
++
++		foreach ($groups as $group)
++		{
++			if (is_object($group))
++			{
++				$newGroupIds[] = $group->getId();
++
++				if ( ! $this->addGroup($group))
++				{
++					return false;
++				}
++			}
++			else
++			{
++				$newGroupIds[] = $groups->getId();
++
++				if ( ! $this->addGroup($groups))
++				{
++					return false;
++				}
++				break;
++			}
++		}
++
++		if ($remove)
++		{
++			foreach ($this->groups as $userGroup)
++			{
++				$existingGroupIds[] = $userGroup->getId();
++			}
++
++			$removeGroupIds = array_diff($existingGroupIds, $newGroupIds);
++
++			if ($removeGroupIds)
++			{
++				self::$groupProviderModel = self::$groupProviderModel ?: new GroupProvider;
++			}
++
++			foreach ($removeGroupIds as $id)
++			{
++				$group = self::$groupProviderModel->findById($id);
++
++				if ( ! $this->removeGroup($group))
++				{
++					return false;
++				}
++			}
++		}
++
++		return true;
++	}
++
++	/**
+ 	 * See if the user is in the given group.
+ 	 *
+-	 * @param \Cartalyst\Sentry\Groups\GroupInterface  $group
++	 * @param  \Cartalyst\Sentry\Groups\GroupInterface  $group
+ 	 * @return bool
+ 	 */
+ 	public function inGroup(GroupInterface $group)
+@@ -806,7 +888,7 @@ class User extends Model implements UserInterface {
+ 			throw new \RuntimeException("A hasher has not been provided for the user.");
+ 		}
+ 
+-		return static::$hasher->checkHash($string, $hashedString);
++		return static::$hasher->checkhash($string, $hashedString);
+ 	}
+ 
+ 	/**
+diff --git a/src/Cartalyst/Sentry/Users/Kohana/User.php b/src/Cartalyst/Sentry/Users/Kohana/User.php
+index d03ff74..6acbff8 100644
+--- a/src/Cartalyst/Sentry/Users/Kohana/User.php
++++ b/src/Cartalyst/Sentry/Users/Kohana/User.php
+@@ -363,7 +363,7 @@ class User extends \ORM implements UserInterface {
+ 			return false;
+ 		}
+ 
+-		return $persistCode === $this->persist_code;
++		return $persistCode == $this->persist_code;
+ 	}
+ 
+ 	/**
+diff --git a/src/Cartalyst/Sentry/Users/UserInterface.php b/src/Cartalyst/Sentry/Users/UserInterface.php
+index ed87cdc..95417d9 100644
+--- a/src/Cartalyst/Sentry/Users/UserInterface.php
++++ b/src/Cartalyst/Sentry/Users/UserInterface.php
+@@ -205,6 +205,15 @@ interface UserInterface {
+ 	public function removeGroup(GroupInterface $group);
+ 
+ 	/**
++	 * Updates the user to the given group(s).
++	 *
++	 * @param  \Illuminate\Database\Eloquent\Collection  $groups
++	 * @param  bool  $remove
++	 * @return bool
++	 */
++	public function updateGroups($groups, $remove = false);
++
++	/**
+ 	 * See if the user is in the given group.
+ 	 *
+ 	 * @param  \Cartalyst\Sentry\Groups\GroupInterface  $group
+diff --git a/tests/EloquentThrottleTest.php b/tests/EloquentThrottleTest.php
+index ada9d28..4aa1f56 100644
+--- a/tests/EloquentThrottleTest.php
++++ b/tests/EloquentThrottleTest.php
+@@ -250,9 +250,9 @@ class EloquentThrottleTest extends PHPUnit_Framework_TestCase {
+ 	protected function addMockConnection($model)
+ 	{
+ 		$model->setConnectionResolver($resolver = m::mock('Illuminate\Database\ConnectionResolverInterface'));
+-		$resolver->shouldReceive('connection')->andReturn(m::mock('Illuminate\Database\Connection'));
+-		$model->getConnection()->shouldReceive('getQueryGrammar')->andReturn(m::mock('Illuminate\Database\Query\Grammars\Grammar'));
+-		$model->getConnection()->shouldReceive('getPostProcessor')->andReturn(m::mock('Illuminate\Database\Query\Processors\Processor'));
++		$resolver->shouldReceive('connection')->andReturn($connection = m::mock('Illuminate\Database\Connection'));
++		$connection->shouldReceive('getQueryGrammar')->andReturn(m::mock('Illuminate\Database\Query\Grammars\Grammar'));
++		$connection->shouldReceive('getPostProcessor')->andReturn(m::mock('Illuminate\Database\Query\Processors\Processor'));
+ 	}
+ 
+ }
+diff --git a/tests/EloquentUserTest.php b/tests/EloquentUserTest.php
+index 3ce9e1f..e64918d 100644
+--- a/tests/EloquentUserTest.php
++++ b/tests/EloquentUserTest.php
+@@ -135,6 +135,53 @@ class EloquentUserTest extends PHPUnit_Framework_TestCase {
+ 		$this->assertTrue($user->removeGroup($group));
+ 	}
+ 
++	public function testUpdateGroupWithOneId()
++	{
++		$group = m::mock('Cartalyst\Sentry\Groups\GroupInterface');
++		$user  = m::mock('Cartalyst\Sentry\Users\Eloquent\User[addGroup]');
++
++		$user->shouldReceive('addGroup')->once()->andReturn(true);
++		$this->assertTrue($user->addGroup($group));
++	}
++
++	public function testUpdateGroupWithMultipleIds()
++	{
++		$group = m::mock('Cartalyst\Sentry\Groups\GroupInterface');
++		$user  = m::mock('Cartalyst\Sentry\Users\Eloquent\User[addGroup]');
++
++		$user->shouldReceive('addGroup')->times(3)->andReturn(true);
++
++		for ($i = 0; $i < 3; $i++)
++		{
++			$this->assertTrue($user->addGroup($group));
++		}
++	}
++
++	public function testUpdateGroupWithOneIdToRemove()
++	{
++		$user  = m::mock('Cartalyst\Sentry\Users\Eloquent\User[removeGroup]');
++		$groupProvider = m::mock('Cartalyst\Sentry\Groups\Eloquent\Provider[findById]');
++		$groupProvider->shouldReceive('findById')->once()->with(\Mockery::type('int'))->andReturn($group = m::mock('Cartalyst\Sentry\Groups\GroupInterface'));
++		$user->shouldReceive('removeGroup')->andReturn(true);
++
++		$this->assertTrue($user->removeGroup($groupProvider->findById(1)));
++
++	}
++
++	public function testUpdateGroupWithMultipleIdsToRemove()
++	{
++		$count = 3;
++		$user  = m::mock('Cartalyst\Sentry\Users\Eloquent\User[removeGroup]');
++		$groupProvider = m::mock('Cartalyst\Sentry\Groups\Eloquent\Provider[findById]');
++		$groupProvider->shouldReceive('findById')->times($count)->with(\Mockery::type('int'))->andReturn($group = m::mock('Cartalyst\Sentry\Groups\GroupInterface'));
++		$user->shouldReceive('removeGroup')->times($count)->andReturn(true);
++
++		for ($i = 0; $i < $count; $i++)
++		{
++			$this->assertTrue($user->removeGroup($groupProvider->findById($i)));
++		}
++	}
++
+ 	public function testMergedPermissions()
+ 	{
+ 		$group1 = m::mock('Cartalyst\Sentry\Groups\GroupInterface');
+@@ -476,7 +523,6 @@ class EloquentUserTest extends PHPUnit_Framework_TestCase {
+ 		// Check the hash
+ 		$this->assertTrue($user->checkPersistCode('hashed_reset_code'));
+ 		$this->assertFalse($user->checkPersistCode('not_the_codeed_reset_code'));
+-		$this->assertFalse($user->checkPersistCode(true));
+ 	}
+ 
+ 	public function testGetActivationCode()
+@@ -651,9 +697,9 @@ class EloquentUserTest extends PHPUnit_Framework_TestCase {
+ 	protected function addMockConnection($model)
+ 	{
+ 		$model->setConnectionResolver($resolver = m::mock('Illuminate\Database\ConnectionResolverInterface'));
+-		$resolver->shouldReceive('connection')->andReturn(m::mock('Illuminate\Database\Connection'));
+-		$model->getConnection()->shouldReceive('getQueryGrammar')->andReturn(m::mock('Illuminate\Database\Query\Grammars\Grammar'));
+-		$model->getConnection()->shouldReceive('getPostProcessor')->andReturn(m::mock('Illuminate\Database\Query\Processors\Processor'));
++		$resolver->shouldReceive('connection')->andReturn($connection = m::mock('Illuminate\Database\Connection'));
++		$connection->shouldReceive('getQueryGrammar')->andReturn(m::mock('Illuminate\Database\Query\Grammars\Grammar'));
++		$connection->shouldReceive('getPostProcessor')->andReturn(m::mock('Illuminate\Database\Query\Processors\Processor'));
+ 	}
+ 
+ }
